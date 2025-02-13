@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Screen Capture with AI Integration</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      padding: 20px;
+    }
+    video, canvas {
+      width: 80%;
+      max-width: 800px;
+      border: 2px solid #ccc;
+      margin-top: 20px;
+    }
+    button, input {
+      padding: 10px;
+      margin: 10px;
+      font-size: 16px;
+    }
+    input[type="text"], input[type="password"] {
+      width: 80%;
+      max-width: 800px;
+      padding: 8px;
+      margin-bottom: 10px;
+    }
+    #responseContainer {
+      margin-top: 20px;
+      text-align: left;
+      width: 80%;
+      max-width: 800px;
+      margin-left: auto;
+      margin-right: auto;
+      border: 1px solid #ccc;
+      padding: 10px;
+      background-color: #f9f9f9;
+      font-family: monospace;
+      white-space: pre-wrap;
+    }
+    .hidden {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <h1>Screen Capture with AI Integration</h1>
+  <p>Enter your AI Endpoint and API Key below:</p>
+  <input type="text" id="apiEndpoint" placeholder="Enter AI Endpoint URL" />
+  <input type="password" id="apiKey" placeholder="Enter API Key" />
+  <p>Click the button below to start screen capture:</p>
+  <button id="captureScreen">Start Screen Capture</button>
+  <button id="stopCapture" class="hidden">Stop Capture</button>
+  <p>
+    <label for="interval">Screenshot Interval (seconds): </label>
+    <input type="number" id="interval" value="5" min="1" style="width: 60px;" />
+  </p>
+  <p><strong>Preview:</strong></p>
+  <video id="screenPreview" autoplay muted></video>
+  <canvas id="screenshotCanvas" class="hidden"></canvas>
+  <div id="responseContainer" class="hidden"></div>
+
+  <script>
+    // Elements
+    const captureButton = document.getElementById('captureScreen');
+    const stopButton = document.getElementById('stopCapture');
+    const screenPreview = document.getElementById('screenPreview');
+    const screenshotCanvas = document.getElementById('screenshotCanvas');
+    const intervalInput = document.getElementById('interval');
+    const apiEndpointInput = document.getElementById('apiEndpoint');
+    const apiKeyInput = document.getElementById('apiKey');
+    const responseContainer = document.getElementById('responseContainer');
+
+    let screenStream;
+    let screenshotInterval;
+
+    // Function to start screen capture
+    captureButton.addEventListener('click', async () => {
+      try {
+        const apiEndpoint = apiEndpointInput.value;
+        const apiKey = apiKeyInput.value;
+
+        // Ensure both API endpoint and API key are provided
+        if (!apiEndpoint || !apiKey) {
+          alert("Please enter both the API Endpoint and API Key.");
+          return;
+        }
+
+        console.log("Starting screen capture...");
+        
+        // Request permission for screen capture
+        screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+
+        // Set the screen stream as the video source
+        screenPreview.srcObject = screenStream;
+
+        // Show the stop button and response container
+        captureButton.classList.add('hidden');
+        stopButton.classList.remove('hidden');
+        responseContainer.classList.remove('hidden');
+
+        // Immediately send the first screenshot
+        takeScreenshotAndSend(apiEndpoint, apiKey);
+
+        // Schedule further screenshots at the specified interval
+        const interval = parseInt(intervalInput.value, 10) * 1000;
+        screenshotInterval = setInterval(() => takeScreenshotAndSend(apiEndpoint, apiKey), interval);
+      } catch (err) {
+        console.error('Error accessing screen capture:', err);
+        alert('Failed to capture screen: ' + err.message);
+      }
+    });
+
+    // Function to stop screen capture
+    stopButton.addEventListener('click', () => {
+      if (screenStream) {
+        // Stop the screen capture
+        screenStream.getTracks().forEach(track => track.stop());
+      }
+      clearInterval(screenshotInterval);
+      screenPreview.srcObject = null;
+
+      // Reset UI
+      captureButton.classList.remove('hidden');
+      stopButton.classList.add('hidden');
+      console.log("Screen capture stopped.");
+    });
+
+    // Function to take a screenshot and send it to the AI endpoint
+    async function takeScreenshotAndSend(apiEndpoint, apiKey) {
+      try {
+        const video = screenPreview;
+        const canvas = screenshotCanvas;
+        const context = canvas.getContext('2d');
+
+        // Set canvas size to match video dimensions
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+
+        // Draw the current video frame onto the canvas
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        // Convert canvas to Base64 image (remove the data URL prefix)
+        const screenshotData = canvas.toDataURL('image/jpeg').split(",")[1];
+
+        // Send the Base64 image to the AI endpoint
+        const response = await sendBase64ToAI(apiEndpoint, apiKey, screenshotData);
+
+        // Display the response
+        responseContainer.textContent = `Response from AI:\n${JSON.stringify(response, null, 2)}`;
+        console.log("Response received:", response);
+      } catch (err) {
+        console.error('Error taking screenshot:', err);
+      }
+    }
+
+    // Function to send the Base64 image to the AI endpoint
+    async function sendBase64ToAI(apiEndpoint, apiKey, base64Image) {
+      try {
+        console.log("Sending request to API...");
+        const response = await fetch(apiEndpoint, {
+          method: 'POST',
+          headers: {
+            'api-key': apiKey,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            model: "o1",  // Replace with your model identifier if needed
+            messages: [
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "text",
+                    text: "Describe the contents of this image, including charts, graphs, or dashboards."
+                  },
+                  {
+                    type: "image_url",
+                    image_url: {
+                      url: `data:image/jpeg;base64,${base64Image}`
+                    }
+                  }
+                ]
+              }
+            ]
+          }),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Failed to process image: ${response.status} ${response.statusText}\n${errorText}`);
+        }
+
+        const result = await response.json();
+        console.log("API response received:", result);
+        return result;
+      } catch (err) {
+        console.error('Error sending Base64 to AI:', err);
+        throw err;
+      }
+    }
+  </script>
+</body>
+</html>
