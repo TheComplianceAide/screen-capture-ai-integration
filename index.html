@@ -9,6 +9,7 @@
       font-family: Arial, sans-serif;
       text-align: center;
       padding: 20px;
+      font-size: 18px;
     }
     video, canvas {
       width: 80%;
@@ -30,15 +31,16 @@
     #responseContainer {
       margin-top: 20px;
       text-align: left;
-      width: 80%;
-      max-width: 800px;
+      width: 90%;
+      max-width: 900px;
       margin-left: auto;
       margin-right: auto;
-      border: 1px solid #ccc;
-      padding: 10px;
-      background-color: #f9f9f9;
+      border: 2px solid #ccc;
+      padding: 20px;
+      background-color: #eef5ff;
       font-family: monospace;
       white-space: pre-wrap;
+      font-size: 1.3em;
     }
     .hidden {
       display: none;
@@ -48,8 +50,18 @@
 <body>
   <h1>Screen Capture with AI Integration</h1>
   <p>Enter your AI Endpoint and API Key below:</p>
-  <input type="text" id="apiEndpoint" placeholder="Enter AI Endpoint URL" />
-  <input type="password" id="apiKey" placeholder="Enter API Key" />
+  <input
+    type="text"
+    id="apiEndpoint"
+    placeholder="Enter AI Endpoint URL"
+    value="https://randy-m1scw9rs-eastus2.openai.azure.com/openai/deployments/o1/chat/completions?api-version=2025-01-01-preview"
+  />
+  <input
+    type="password"
+    id="apiKey"
+    placeholder="Enter API Key"
+    value="d74e1b05a7f74630b0a0f9f74ec81229"
+  />
   <p>Click the button below to start screen capture:</p>
   <button id="captureScreen">Start Screen Capture</button>
   <button id="stopCapture" class="hidden">Stop Capture</button>
@@ -73,8 +85,16 @@
     const apiKeyInput = document.getElementById('apiKey');
     const responseContainer = document.getElementById('responseContainer');
 
+    // Load conversation history from localStorage for lightweight memory
+    let conversationHistory = JSON.parse(localStorage.getItem('conversationHistory') || '[]');
+
     let screenStream;
     let screenshotInterval;
+
+    if (conversationHistory.length > 0) {
+      responseContainer.classList.remove('hidden');
+      responseContainer.textContent = conversationHistory.join('\n\n');
+    }
 
     // Function to start screen capture
     captureButton.addEventListener('click', async () => {
@@ -100,6 +120,7 @@
         captureButton.classList.add('hidden');
         stopButton.classList.remove('hidden');
         responseContainer.classList.remove('hidden');
+        responseContainer.textContent = conversationHistory.join('\n\n');
 
         // Immediately send the first screenshot
         takeScreenshotAndSend(apiEndpoint, apiKey);
@@ -148,9 +169,17 @@
         // Send the Base64 image to the AI endpoint
         const response = await sendBase64ToAI(apiEndpoint, apiKey, screenshotData);
 
-        // Display the response
-        responseContainer.textContent = `Response from AI:\n${JSON.stringify(response, null, 2)}`;
-        console.log("Response received:", response);
+        // Display the response as plain text for readability
+        const messageText = response.choices?.[0]?.message?.content || JSON.stringify(response, null, 2);
+        responseContainer.textContent = messageText;
+        console.log("Response received:", messageText);
+
+        // Update lightweight memory with the latest response
+        conversationHistory.push(messageText);
+        if (conversationHistory.length > 5) {
+          conversationHistory = conversationHistory.slice(-5);
+        }
+        localStorage.setItem('conversationHistory', JSON.stringify(conversationHistory));
       } catch (err) {
         console.error('Error taking screenshot:', err);
       }
@@ -174,7 +203,7 @@
                 content: [
                   {
                     type: "text",
-                    text: "Describe the contents of this image, including charts, graphs, or dashboards."
+                    text: `You are a support assistant guiding the user on how to follow the NIST Cybersecurity Framework using Microsoft Azure. Based on the screenshot, provide the next steps they should take. Previous guidance: ${conversationHistory.join(' ')}`
                   },
                   {
                     type: "image_url",
