@@ -9,19 +9,25 @@
       font-family: Arial, sans-serif;
       text-align: center;
       padding: 20px;
+      font-size: 18px;
+    }
+    #main {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
     }
     video, canvas {
-      width: 80%;
+      width: 70%;
       max-width: 800px;
       border: 2px solid #ccc;
       margin-top: 20px;
     }
-    button, input {
+    button, input, textarea {
       padding: 10px;
       margin: 10px;
       font-size: 16px;
     }
-    input[type="text"], input[type="password"] {
+    input[type="text"], input[type="password"], textarea {
       width: 80%;
       max-width: 800px;
       padding: 8px;
@@ -30,15 +36,16 @@
     #responseContainer {
       margin-top: 20px;
       text-align: left;
-      width: 80%;
-      max-width: 800px;
+      width: 90%;
+      max-width: 900px;
       margin-left: auto;
       margin-right: auto;
-      border: 1px solid #ccc;
-      padding: 10px;
-      background-color: #f9f9f9;
+      border: 2px solid #ccc;
+      padding: 20px;
+      background-color: #eef5ff;
       font-family: monospace;
       white-space: pre-wrap;
+      font-size: 1.3em;
     }
     .hidden {
       display: none;
@@ -46,11 +53,26 @@
   </style>
 </head>
 <body>
-  <h1>Screen Capture with AI Integration</h1>
-  <p>Enter your AI Endpoint and API Key below:</p>
-  <input type="text" id="apiEndpoint" placeholder="Enter AI Endpoint URL" />
-  <input type="password" id="apiKey" placeholder="Enter API Key" />
-  <p>Click the button below to start screen capture:</p>
+  <div id="main">
+    <h1>Screen Capture with AI Integration</h1>
+    <label for="task">Task for AI guidance:</label>
+    <input type="text" id="task" value="Guide the user through NIST CSF compliance using Microsoft Azure." />
+    <details>
+      <summary>Connection Settings</summary>
+      <input
+        type="text"
+        id="apiEndpoint"
+        placeholder="Enter AI Endpoint URL"
+        value="https://randy-m1scw9rs-eastus2.openai.azure.com/openai/deployments/o1/chat/completions?api-version=2025-01-01-preview"
+      />
+      <input
+        type="password"
+        id="apiKey"
+        placeholder="Enter API Key"
+        value="d74e1b05a7f74630b0a0f9f74ec81229"
+      />
+    </details>
+    <p>Click the button below to start screen capture:</p>
   <button id="captureScreen">Start Screen Capture</button>
   <button id="stopCapture" class="hidden">Stop Capture</button>
   <p>
@@ -61,6 +83,7 @@
   <video id="screenPreview" autoplay muted></video>
   <canvas id="screenshotCanvas" class="hidden"></canvas>
   <div id="responseContainer" class="hidden"></div>
+  </div>
 
   <script>
     // Elements
@@ -71,10 +94,20 @@
     const intervalInput = document.getElementById('interval');
     const apiEndpointInput = document.getElementById('apiEndpoint');
     const apiKeyInput = document.getElementById('apiKey');
+    const taskInput = document.getElementById('task');
     const responseContainer = document.getElementById('responseContainer');
+
+    // Load conversation history from localStorage for lightweight memory
+    let conversationHistory = JSON.parse(localStorage.getItem('conversationHistory') || '[]');
 
     let screenStream;
     let screenshotInterval;
+    let lastScreenshotData = '';
+
+    if (conversationHistory.length > 0) {
+      responseContainer.classList.remove('hidden');
+      responseContainer.textContent = conversationHistory.join('\n\n');
+    }
 
     // Function to start screen capture
     captureButton.addEventListener('click', async () => {
@@ -100,13 +133,14 @@
         captureButton.classList.add('hidden');
         stopButton.classList.remove('hidden');
         responseContainer.classList.remove('hidden');
+        responseContainer.textContent = conversationHistory.join('\n\n');
 
         // Immediately send the first screenshot
-        takeScreenshotAndSend(apiEndpoint, apiKey);
+        takeScreenshotAndSend(apiEndpoint, apiKey, taskInput.value);
 
         // Schedule further screenshots at the specified interval
         const interval = parseInt(intervalInput.value, 10) * 1000;
-        screenshotInterval = setInterval(() => takeScreenshotAndSend(apiEndpoint, apiKey), interval);
+        screenshotInterval = setInterval(() => takeScreenshotAndSend(apiEndpoint, apiKey, taskInput.value), interval);
       } catch (err) {
         console.error('Error accessing screen capture:', err);
         alert('Failed to capture screen: ' + err.message);
@@ -129,7 +163,7 @@
     });
 
     // Function to take a screenshot and send it to the AI endpoint
-    async function takeScreenshotAndSend(apiEndpoint, apiKey) {
+    async function takeScreenshotAndSend(apiEndpoint, apiKey, task) {
       try {
         const video = screenPreview;
         const canvas = screenshotCanvas;
@@ -145,19 +179,34 @@
         // Convert canvas to Base64 image (remove the data URL prefix)
         const screenshotData = canvas.toDataURL('image/jpeg').split(",")[1];
 
-        // Send the Base64 image to the AI endpoint
-        const response = await sendBase64ToAI(apiEndpoint, apiKey, screenshotData);
+        // Skip sending if screenshot hasn't changed
+        if (screenshotData === lastScreenshotData) {
+          console.log('Screenshot unchanged, skipping API call.');
+          return;
+        }
+        lastScreenshotData = screenshotData;
 
-        // Display the response
-        responseContainer.textContent = `Response from AI:\n${JSON.stringify(response, null, 2)}`;
-        console.log("Response received:", response);
+        // Send the Base64 image to the AI endpoint
+        const response = await sendBase64ToAI(apiEndpoint, apiKey, screenshotData, task);
+
+        // Display the response as plain text for readability
+        const messageText = response.choices?.[0]?.message?.content || JSON.stringify(response, null, 2);
+        responseContainer.textContent = messageText;
+        console.log("Response received:", messageText);
+
+        // Update lightweight memory with the latest response
+        conversationHistory.push(messageText);
+        if (conversationHistory.length > 5) {
+          conversationHistory = conversationHistory.slice(-5);
+        }
+        localStorage.setItem('conversationHistory', JSON.stringify(conversationHistory));
       } catch (err) {
         console.error('Error taking screenshot:', err);
       }
     }
 
     // Function to send the Base64 image to the AI endpoint
-    async function sendBase64ToAI(apiEndpoint, apiKey, base64Image) {
+    async function sendBase64ToAI(apiEndpoint, apiKey, base64Image, task) {
       try {
         console.log("Sending request to API...");
         const response = await fetch(apiEndpoint, {
@@ -174,7 +223,7 @@
                 content: [
                   {
                     type: "text",
-                    text: "Describe the contents of this image, including charts, graphs, or dashboards."
+                    text: `${task}. Based on the screenshot, provide the next steps for the user. Previous guidance: ${conversationHistory.join(' ')}`
                   },
                   {
                     type: "image_url",
