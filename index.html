@@ -47,6 +47,26 @@
       white-space: pre-wrap;
       font-size: 1.3em;
     }
+    #overlay {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      max-width: 300px;
+      max-height: 200px;
+      overflow: auto;
+      background-color: #eef5ff;
+      border: 1px solid #ccc;
+      padding: 10px;
+      z-index: 1000;
+    }
+    #overlayHeader {
+      display: flex;
+      justify-content: flex-end;
+      cursor: move;
+    }
+    #overlayHeader button {
+      margin-left: 5px;
+    }
     .hidden {
       display: none;
     }
@@ -83,6 +103,14 @@
   <video id="screenPreview" autoplay muted></video>
   <canvas id="screenshotCanvas" class="hidden"></canvas>
   <div id="responseContainer" class="hidden"></div>
+  <button id="showOverlay" class="hidden">Show Overlay</button>
+  <div id="overlay" class="hidden">
+    <div id="overlayHeader">
+      <button id="overlayToggle" title="Show panel">☰</button>
+      <button id="overlayPopOut" title="Pop out">↗</button>
+    </div>
+    <div id="overlayContent"></div>
+  </div>
   </div>
 
   <script>
@@ -96,6 +124,12 @@
     const apiKeyInput = document.getElementById('apiKey');
     const taskInput = document.getElementById('task');
     const responseContainer = document.getElementById('responseContainer');
+    const showOverlayButton = document.getElementById('showOverlay');
+    const overlay = document.getElementById('overlay');
+    const overlayContent = document.getElementById('overlayContent');
+    const overlayToggle = document.getElementById('overlayToggle');
+    const overlayPopOut = document.getElementById('overlayPopOut');
+    const overlayHeader = document.getElementById('overlayHeader');
 
     // Load conversation history from localStorage for lightweight memory
     let conversationHistory = JSON.parse(localStorage.getItem('conversationHistory') || '[]');
@@ -107,7 +141,65 @@
     if (conversationHistory.length > 0) {
       responseContainer.classList.remove('hidden');
       responseContainer.textContent = conversationHistory.join('\n\n');
+      showOverlayButton.classList.remove('hidden');
+      overlayContent.textContent = conversationHistory[conversationHistory.length - 1];
     }
+
+    // Toggle to overlay view
+    showOverlayButton.addEventListener('click', () => {
+      responseContainer.classList.add('hidden');
+      overlay.classList.remove('hidden');
+      showOverlayButton.classList.add('hidden');
+    });
+
+    // Toggle back to full panel
+    overlayToggle.addEventListener('click', () => {
+      overlay.classList.add('hidden');
+      responseContainer.classList.remove('hidden');
+      showOverlayButton.classList.remove('hidden');
+    });
+
+    // Pop out into new window or show notification
+    overlayPopOut.addEventListener('click', () => {
+      if ('Notification' in window) {
+        if (Notification.permission === 'granted') {
+          new Notification('AI Response', { body: overlayContent.textContent.slice(0, 100) });
+        } else if (Notification.permission !== 'denied') {
+          Notification.requestPermission().then(p => {
+            if (p === 'granted') {
+              new Notification('AI Response', { body: overlayContent.textContent.slice(0, 100) });
+            }
+          });
+        } else {
+          window.open('').document.write('<pre>' + overlayContent.textContent + '</pre>');
+        }
+      } else {
+        window.open('').document.write('<pre>' + overlayContent.textContent + '</pre>');
+      }
+    });
+
+    // Simple draggable overlay
+    let drag = false, offsetX = 0, offsetY = 0;
+    const startDrag = (e) => {
+      drag = true;
+      offsetX = e.clientX - overlay.offsetLeft;
+      offsetY = e.clientY - overlay.offsetTop;
+      document.addEventListener('mousemove', onDrag);
+      document.addEventListener('mouseup', endDrag);
+    };
+    const onDrag = (e) => {
+      if (!drag) return;
+      overlay.style.left = (e.clientX - offsetX) + 'px';
+      overlay.style.top = (e.clientY - offsetY) + 'px';
+      overlay.style.right = 'auto';
+      overlay.style.bottom = 'auto';
+    };
+    const endDrag = () => {
+      drag = false;
+      document.removeEventListener('mousemove', onDrag);
+      document.removeEventListener('mouseup', endDrag);
+    };
+    overlayHeader.addEventListener('mousedown', startDrag);
 
     // Function to start screen capture
     captureButton.addEventListener('click', async () => {
@@ -134,6 +226,8 @@
         stopButton.classList.remove('hidden');
         responseContainer.classList.remove('hidden');
         responseContainer.textContent = conversationHistory.join('\n\n');
+        showOverlayButton.classList.remove('hidden');
+        overlayContent.textContent = conversationHistory[conversationHistory.length - 1] || '';
 
         // Immediately send the first screenshot
         takeScreenshotAndSend(apiEndpoint, apiKey, taskInput.value);
@@ -159,6 +253,8 @@
       // Reset UI
       captureButton.classList.remove('hidden');
       stopButton.classList.add('hidden');
+      overlay.classList.add('hidden');
+      showOverlayButton.classList.add('hidden');
       console.log("Screen capture stopped.");
     });
 
@@ -192,6 +288,7 @@
         // Display the response as plain text for readability
         const messageText = response.choices?.[0]?.message?.content || JSON.stringify(response, null, 2);
         responseContainer.textContent = messageText;
+        overlayContent.textContent = messageText;
         console.log("Response received:", messageText);
 
         // Update lightweight memory with the latest response
